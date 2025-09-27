@@ -3,6 +3,8 @@
 ## 1. 目的
 本アプリは、Raspberry Pi 5 と Raspberry Pi 公式カメラモジュール V3（以下、Camera V3）で取得した映像に対し、YOLO を用いてリアルタイムに物体検出を行い、検出した代表的なオブジェクト名（クラス名）を 16×2 文字 LCD（一般的な LCD1602 互換、I²C バックパック付）に表示することを目的とします。初心者でも再現可能な構成とし、Python を用いて開発します。
 
+**本プロジェクトは初心者向けの教材であるため、なるべくシンプルな構成・コードで、可能な限り単一のPythonファイルで簡潔に実装することを基本方針とします。**
+
 > 備考：ご要望の「1603LCD」は 16×2 文字 LCD（LCD1602 互換）を想定して記述しています（I²C バックパック付）。
 
 ## 2. スコープ
@@ -15,11 +17,12 @@
 ※ 以下はスコープ外：学習データの収集・再学習、Web UI の提供、動画保存（必要に応じ将来対応）
 
 ## 3. 成果物
-- 実行可能な Python スクリプト群（`src/`）
+- **実行可能な単一 Python スクリプト（`yolo_picamera_detector.py`）** - 教材として理解しやすい構成
 - 依存関係ファイル（`requirements.txt`）
-- 設定ファイル（`config.yaml`）
-- 起動用 systemd ユニット（任意、`deploy/rpi5-yolo.service`）
 - セットアップ手順書、配線図、README（再現可能性を担保）
+- 起動用 systemd ユニット（任意、`deploy/rpi5-yolo.service`）
+
+※ 設定項目は可能な限りスクリプト内定数として定義し、外部設定ファイルは使用しない方針
 
 ## 4. 利用者・想定環境
 - 想定ユーザー：Raspberry Pi・Python 初学者〜中級者
@@ -93,29 +96,27 @@
 - 物理 UI：LCD 表示のみ（必要に応じて停止ボタンを GPIO へ拡張）
 - ソフト UI：CLI 引数（解像度、クラス優先、LCD アドレス、表示モード など）
 
-## 10. 設定項目（例：`config.yaml`）
-```yaml
-camera:
-  width: 640
-  height: 480
-  fps: 20
-model:
-  name: yolov8n
-  conf_threshold: 0.5
-  iou_threshold: 0.45
-lcd:
-  i2c_bus: 1
-  address: 0x27
-  cols: 16
-  rows: 2
-  line2: fps  # fps | conf | none
-ui:
-  max_labels: 2
-  label_lang: ja  # ja | en
-logging:
-  level: INFO
-  file: logs/app.log
+## 10. 設定項目（スクリプト内定数として定義）
+```python
+# 設定定数（yolo_picamera_detector.py内で定義）
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
+CAMERA_FPS = 20
+
+MODEL_NAME = "yolov8n"
+CONF_THRESHOLD = 0.5
+IOU_THRESHOLD = 0.45
+
+LCD_I2C_BUS = 1
+LCD_ADDRESS = 0x27
+LCD_COLS = 16
+LCD_ROWS = 2
+
+MAX_LABELS = 2
+LABEL_LANG = "ja"  # ja | en
 ```
+
+※ 教材として理解しやすくするため、外部設定ファイルは使用せず、スクリプト内で定数として定義
 
 ## 11. 画面・表示仕様（LCD）
 - 1 行目（例）：`Person 95%`
@@ -126,16 +127,16 @@ logging:
 1) Camera V3 → 2) フレーム取得（OpenCV/Libcamera） → 3) YOLO 推論 → 4) クラス選定 → 5) LCD 文字列整形 → 6) I²C 書き込み
 
 ## 13. 開発体制・品質保証
-- コーディング規約：PEP8 準拠
-- テスト：ユニットテスト（ラベル整形、優先ルール、設定ロード、LCD ダミードライバ）
+- コーディング規約：PEP8 準拠、シンプルで読みやすいコード（教材向け）
+- テスト：基本的な動作確認（単一ファイル構成のため、シンプルなテストに留める）
 - 実機テスト：屋内/屋外での検出精度、FPS 測定、8 時間連続稼働
 
 ## 14. 導入手順（概要）
 1. OS 更新、カメラ・I²C 有効化
 2. 依存パッケージ導入（Python venv、OpenCV、ultralytics、RPLCD 等）
 3. リポジトリ取得、`requirements.txt` でインストール
-4. `config.yaml` 設定
-5. 実行：`python -m src.app`（例）
+4. 必要に応じて `yolo_picamera_detector.py` 内の設定定数を調整
+5. 実行：`python yolo_picamera_detector.py`
 6. 任意：systemd 登録で自動起動
 
 ## 15. 受け入れ基準

@@ -1,0 +1,20 @@
+# YOLO Picamera LCD Detector 依存関係
+# Raspberry Pi 5用パッケージリスト
+
+# YOLOv8物体検出
+ultralytics>=8.0.0
+
+# 画像処理・カメラ
+opencv-python>=4.8.0
+picamera2>=0.3.12
+
+# LCD表示（I2C）
+RPLCD>=1.3.0
+smbus2>=0.4.2
+
+# システム・ユーティリティ
+numpy>=1.24.0
+Pillow>=9.0.0
+
+# ログ・設定（標準ライブラリのため不要）
+# logging, time, threading, sys は標準ライブラリ
