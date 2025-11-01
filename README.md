@@ -1,15 +1,15 @@
 # Raspberry Pi 5 YOLO物体検出システム
 
-Raspberry Pi 5とYOLOv8を使用したリアルタイム物体検出システムです。カメラで撮影した映像から物体を検出し、結果を16×2 LCDディスプレイに表示します。
+Raspberry Pi 5とYOLOv8を使用したリアルタイム物体検出システムです。カメラで撮影した映像から物体を検出し、結果をSSD1306 OLEDディスプレイに日本語で表示します。
 
 ## 📷 概要
 
-このプロジェクトは、初心者向けの教材として設計されており、**単一のPythonファイル**で構成されています。Raspberry Pi 5、Camera V3、YOLOv8、16×2 LCDを組み合わせて、リアルタイムで物体検出を行います。
+このプロジェクトは、初心者向けの教材として設計されており、**単一のPythonファイル**で構成されています。Raspberry Pi 5、Camera V3、YOLOv8、SSD1306 OLED（128×64）を組み合わせて、リアルタイムで物体検出を行います。
 
 ### 主な機能
 - 📹 Raspberry Pi Camera V3からのリアルタイム映像取得
 - 🔍 YOLOv8による高精度な物体検出
-- 📺 16×2 I2C LCDへの検出結果表示
+- 📺 SSD1306 OLED（128×64, I2C）への日本語表示
 - 📊 FPS（フレームレート）の計測・表示
 - 🌐 日本語対応ラベル（80クラス）
 - 📝 詳細なログ出力とエラーハンドリング
@@ -19,20 +19,22 @@ Raspberry Pi 5とYOLOv8を使用したリアルタイム物体検出システム
 ### 必須機器
 - **Raspberry Pi 5** （電源27W以上推奨）
 - **Raspberry Pi Camera V3** （オートフォーカス対応）
-- **16×2 LCD** （LCD1602互換） + I²Cバックパック（PCF8574系）
+- **SSD1306 OLED** （128×64ピクセル、I²C接続、0.96インチ推奨）
 - **ジャンパワイヤ** （配線用）
 
 ### 接続方法
 ```
-Raspberry Pi 5  ←→  16×2 LCD (I²C)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-5V              ←→  VCC
+Raspberry Pi 5  ←→  SSD1306 OLED (I²C)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3.3V            ←→  VCC
 GND             ←→  GND
 GPIO2 (SDA)     ←→  SDA
 GPIO3 (SCL)     ←→  SCL
 ```
 
-**⚠️ 重要**: I²Cプルアップ電圧は3.3Vを使用してください。5Vプルアップの場合はレベル変換が必要です。
+**⚠️ 重要**:
+- 3.3V OLEDを使用してください。5V OLEDの場合はBSS138方式のレベル変換モジュールが必要です。
+- I²Cアドレスは通常 **0x3C** または **0x3D** です。
 
 ## 💻 ソフトウェア要件
 
@@ -89,23 +91,31 @@ MODEL_NAME = "yolov8n"       # モデル名（軽量版）
 CONF_THRESHOLD = 0.5         # 信頼度閾値
 IOU_THRESHOLD = 0.45         # IoU閾値
 
-# LCD設定
-LCD_I2C_BUS = 1         # I²Cバス番号
-LCD_ADDRESS = 0x27      # I²Cアドレス（0x3Fの場合も）
-LCD_COLS = 16           # LCD列数
-LCD_ROWS = 2            # LCD行数
+# OLED設定
+OLED_I2C_BUS = 1        # I²Cバス番号
+OLED_ADDRESS = 0x3C     # I²Cアドレス（0x3Dの場合も）
+OLED_WIDTH = 128        # OLED幅（ピクセル）
+OLED_HEIGHT = 64        # OLED高さ（ピクセル）
+
+# フォント設定
+FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+FONT_SIZE_LARGE = 14    # 大きいフォントサイズ
+FONT_SIZE_SMALL = 11    # 小さいフォントサイズ
 
 # 表示設定
-MAX_LABELS = 2          # 最大表示ラベル数
+MAX_LABELS = 3          # 最大表示ラベル数
 LABEL_LANG = "ja"       # ラベル言語（ja/en）
 ```
 
-## 📺 LCD表示例
+## 📺 OLED表示例
 
 ```
-Person 95%      ← 検出されたオブジェクト（信頼度）
-FPS: 14.2       ← フレームレート
+1.人 95%           FPS:14.2
+2.椅子 82%
+3.ボトル 76%
 ```
+
+128×64ピクセルのOLEDディスプレイに、検出された物体を日本語で表示します。最大3つまでの検出結果を同時に表示可能です。
 
 ## 🎯 対応オブジェクト
 
@@ -127,13 +137,17 @@ sudo systemctl stop motion
 sudo pkill -f camera
 ```
 
-### LCDが表示されない
+### OLEDが表示されない
 ```bash
 # I²Cアドレスの確認
 i2cdetect -y 1
 
-# 一般的なアドレス: 0x27, 0x3F
-# yolo_picamera_detector.py内のLCD_ADDRESSを変更
+# 一般的なアドレス: 0x3C, 0x3D
+# yolo_picamera_detector.py内のOLED_ADDRESSを変更
+
+# 日本語フォントのインストール（必要な場合）
+sudo apt-get update
+sudo apt-get install fonts-noto-cjk
 ```
 
 ### パフォーマンスが低い
@@ -169,9 +183,9 @@ sudo raspi-config
 - `YOLODetector`: メインクラス
   - `initialize_model()`: YOLOモデル初期化
   - `initialize_camera()`: カメラ初期化
-  - `initialize_lcd()`: LCD初期化
+  - `initialize_oled()`: OLED初期化とフォント読み込み
   - `detect_objects()`: 物体検出実行
-  - `update_lcd()`: LCD表示更新
+  - `update_oled()`: OLED表示更新（日本語対応）
 
 ### ログファイル
 実行時に`detector.log`が生成され、詳細なログが記録されます。
