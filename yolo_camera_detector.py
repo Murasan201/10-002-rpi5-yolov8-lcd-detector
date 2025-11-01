@@ -2,7 +2,6 @@
 """
 Raspberry Pi 5 YOLO Camera OLED Detector (Universal Version)
 YOLOv8による物体検出結果をSSD1306 OLEDに日本語表示するシステム（USB/RPiカメラ対応）
-要件定義書: README.md
 """
 
 import cv2
