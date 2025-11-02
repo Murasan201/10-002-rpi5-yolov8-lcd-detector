@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Raspberry Pi 5 YOLO Camera OLED Detector
-YOLOv8による物体検出結果をSSD1306 OLEDに日本語表示するシステム
+Raspberry Pi 5 YOLO Camera OLED Detector (Universal Version)
+YOLOv8による物体検出結果をSSD1306 OLEDに日本語表示するシステム（USB/RPiカメラ対応）
 """
 
 import cv2
 import time
 import logging
 import sys
+import argparse
 from pathlib import Path
 from threading import Thread, Event
 from ultralytics import YOLO  # YOLOv8物体検出ライブラリ
@@ -17,7 +18,6 @@ from luma.core.render import canvas
 from luma.oled.device import ssd1306  # SSD1306 OLEDドライバ
 from PIL import ImageFont  # 日本語フォント表示用
 
-# ========================================
 # ========================================
 # 設定定数
 # ========================================
@@ -136,14 +136,21 @@ class YOLODetector:
     """
     YOLOv8による物体検出とOLED表示を統合管理するクラス
     初心者向けに機能を整理し、単一ファイルで完結する実装にしています
+    Raspberry Pi Camera V3とUSBカメラの両方に対応
     """
 
-    def __init__(self):
+    def __init__(self, camera_type='rpi', device_id=0):
         """
         YOLODetectorの初期化
         モデル、カメラ、OLEDの各属性を初期化し、ログ設定を行う
+
+        Args:
+            camera_type (str): カメラタイプ（'rpi'=Raspberry Pi Camera V3、'usb'=USBカメラ）
+            device_id (int): USBカメラのデバイスID（デフォルト: 0）
         """
         self.model = None
+        self.camera_type = camera_type  # カメラタイプを保存
+        self.device_id = device_id  # USBカメラのデバイスID
         self.setup_logging()
 
     def setup_logging(self):
@@ -175,9 +182,25 @@ class YOLODetector:
             return False
 
     def initialize_camera(self):
-        """カメラの初期化"""
+        """
+        カメラの初期化
+        camera_typeに応じてRaspberry Pi Camera V3またはUSBカメラを初期化
+        """
+        if self.camera_type == 'rpi':
+            return self._initialize_rpi_camera()
+        elif self.camera_type == 'usb':
+            return self._initialize_usb_camera()
+        else:
+            self.logger.error(f"不明なカメラタイプ: {self.camera_type}")
+            return False
+
+    def _initialize_rpi_camera(self):
+        """
+        Raspberry Pi Camera V3の初期化
+        元のyolo_picamera_detector.pyと同じ実装
+        """
         try:
-            self.logger.info("カメラを初期化中...")
+            self.logger.info("Raspberry Pi Camera V3を初期化中...")
             self.camera = Picamera2()
             config = self.camera.create_preview_configuration(
                 main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT)}
@@ -185,14 +208,50 @@ class YOLODetector:
             self.camera.configure(config)
             self.camera.start()
             time.sleep(2)  # カメラの安定化待ち（オートフォーカス調整など）
-            self.logger.info(f"カメラ初期化完了: {CAMERA_WIDTH}x{CAMERA_HEIGHT}")
+            self.logger.info(f"Raspberry Pi Camera V3初期化完了: {CAMERA_WIDTH}x{CAMERA_HEIGHT}")
             return True
         except Exception as e:
-            self.logger.error(f"カメラ初期化エラー: {e}")
+            self.logger.error(f"Raspberry Pi Camera V3初期化エラー: {e}")
             self.logger.error("カメラ接続と設定を確認してください")
             self.logger.error("ヒント1: sudo raspi-config で Camera を有効化")
             self.logger.error("ヒント2: 他のプログラムがカメラを使用していないか確認")
             self.logger.error("        sudo pkill -f camera")
+            return False
+
+    def _initialize_usb_camera(self):
+        """
+        USBカメラの初期化
+        OpenCVのVideoCaptureを使用
+        """
+        try:
+            self.logger.info(f"USBカメラ（デバイス{self.device_id}）を初期化中...")
+            self.camera = cv2.VideoCapture(self.device_id)
+
+            # カメラが正常に開けるか確認
+            if not self.camera.isOpened():
+                raise Exception(f"USBカメラ（デバイス{self.device_id}）を開けませんでした")
+
+            # 解像度とFPSを設定
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            self.camera.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+
+            # 実際の設定値を取得して確認
+            actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = self.camera.get(cv2.CAP_PROP_FPS)
+
+            self.logger.info(f"USBカメラ初期化完了: {actual_width}x{actual_height} @ {actual_fps}fps")
+
+            # カメラの安定化待ち
+            time.sleep(2)
+            return True
+        except Exception as e:
+            self.logger.error(f"USBカメラ初期化エラー: {e}")
+            self.logger.error("カメラ接続とデバイスIDを確認してください")
+            self.logger.error("ヒント1: ls /dev/video* でデバイスを確認")
+            self.logger.error("ヒント2: v4l2-ctl --list-devices で利用可能なカメラを確認")
+            self.logger.error("ヒント3: 他のプログラムがカメラを使用していないか確認")
             return False
 
     def initialize_oled(self):
@@ -367,12 +426,47 @@ class YOLODetector:
         except Exception as e:
             self.logger.error(f"OLED更新エラー: {e}")
 
+    def get_frame(self):
+        """
+        カメラタイプに応じてフレームを取得する
+
+        Returns:
+            numpy.ndarray: BGR形式の画像フレーム（失敗時はNone）
+        """
+        try:
+            if self.camera_type == 'rpi':
+                # Raspberry Pi Camera V3の場合
+                # Picamera2はRGB形式で出力するため、OpenCVのBGR形式に変換
+                frame = self.camera.capture_array()
+                if len(frame.shape) == 3 and frame.shape[2] == 3:
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                else:
+                    frame_bgr = frame
+                return frame_bgr
+
+            elif self.camera_type == 'usb':
+                # USBカメラの場合
+                # VideoCaptureはすでにBGR形式で出力するため変換不要
+                ret, frame = self.camera.read()
+                if not ret:
+                    self.logger.warning("USBカメラからフレーム取得失敗")
+                    return None
+                return frame
+
+            else:
+                return None
+
+        except Exception as e:
+            self.logger.error(f"フレーム取得エラー: {e}")
+            return None
+
     def run(self):
         """
         メインループを実行する
         初期化→フレーム取得→物体検出→OLED表示のサイクルを繰り返す
         """
-        self.logger.info("YOLO Picamera OLED Detector 開始")
+        camera_type_name = "Raspberry Pi Camera V3" if self.camera_type == 'rpi' else f"USBカメラ（デバイス{self.device_id}）"
+        self.logger.info(f"YOLO Camera OLED Detector 開始（カメラ: {camera_type_name}）")
 
         # 初期化
         if not self.initialize_model():
@@ -393,14 +487,12 @@ class YOLODetector:
 
             while True:
                 # フレーム取得
-                frame = self.camera.capture_array()
+                frame_bgr = self.get_frame()
 
-                # BGR変換（OpenCV用）
-                # Picamera2はRGB形式で出力するため、OpenCVのBGR形式に変換
-                if len(frame.shape) == 3 and frame.shape[2] == 3:
-                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                else:
-                    frame_bgr = frame
+                if frame_bgr is None:
+                    # フレーム取得失敗時は少し待ってスキップ
+                    time.sleep(0.1)
+                    continue
 
                 # 物体検出
                 detections = self.detect_objects(frame_bgr)
@@ -437,18 +529,27 @@ class YOLODetector:
             self.cleanup()
 
     def cleanup(self):
-        """リソースのクリーンアップ"""
+        """
+        リソースのクリーンアップ
+        カメラタイプに応じて適切な停止処理を実行
+        """
         self.logger.info("リソースをクリーンアップ中...")
 
         try:
             if hasattr(self, 'camera'):
-                self.camera.stop()
-                self.logger.info("カメラ停止完了")
+                if self.camera_type == 'rpi':
+                    # Raspberry Pi Camera V3の停止
+                    self.camera.stop()
+                    self.logger.info("Raspberry Pi Camera V3停止完了")
+                elif self.camera_type == 'usb':
+                    # USBカメラの停止
+                    self.camera.release()
+                    self.logger.info("USBカメラ停止完了")
         except Exception as e:
             self.logger.error(f"カメラ停止エラー: {e}")
 
         try:
-            if self.oled:
+            if hasattr(self, 'oled') and self.oled:
                 with canvas(self.oled) as draw:
                     draw.text((30, 25), "停止", font=self.font_large, fill="white")
                 time.sleep(1)
@@ -460,10 +561,51 @@ class YOLODetector:
 
 def main():
     """
-    メイン関数：YOLODetectorを初期化して検出処理を開始
+    メイン関数：コマンドライン引数を処理してYOLODetectorを初期化・実行
     エラー発生時は適切な終了コードを返す
     """
-    detector = YOLODetector()
+    # コマンドライン引数の設定
+    parser = argparse.ArgumentParser(
+        description='YOLOv8物体検出システム（Raspberry Pi Camera V3 / USBカメラ対応）',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用例:
+  # Raspberry Pi Camera V3を使用（デフォルト）
+  python3 yolo_camera_detector.py
+
+  # Raspberry Pi Camera V3を明示的に指定
+  python3 yolo_camera_detector.py --camera-type rpi
+
+  # USBカメラを使用（デバイス0）
+  python3 yolo_camera_detector.py --camera-type usb
+
+  # USBカメラを使用（デバイス1）
+  python3 yolo_camera_detector.py --camera-type usb --device 1
+        """
+    )
+
+    # カメラタイプ引数
+    parser.add_argument(
+        '-c', '--camera-type',
+        type=str,
+        choices=['rpi', 'usb'],
+        default='rpi',
+        help='カメラタイプ（rpi: Raspberry Pi Camera V3、usb: USBカメラ）デフォルト: rpi'
+    )
+
+    # デバイスID引数（USBカメラ用）
+    parser.add_argument(
+        '-d', '--device',
+        type=int,
+        default=0,
+        help='USBカメラのデバイスID（通常0または1）デフォルト: 0'
+    )
+
+    # 引数をパース
+    args = parser.parse_args()
+
+    # YOLODetectorの初期化
+    detector = YOLODetector(camera_type=args.camera_type, device_id=args.device)
 
     try:
         success = detector.run()
